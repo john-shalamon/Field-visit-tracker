@@ -19,8 +19,7 @@
         "android.permission.ACCESS_COARSE_LOCATION"
       ]
     },
-    "web": {
-    },
+    "web": {},
     "plugins": [
       [
         "expo-location",
@@ -40,7 +39,8 @@
           "photosPermission": "The app accesses your photos to let you share them.",
           "cameraCameraPermission": "The app accesses your camera to let you take photos."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "scheme": "fieldvisittracker"
   }

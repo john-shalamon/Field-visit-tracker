@@ -1,306 +1,272 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl,
+  Dimensions, ScrollView, StatusBar, ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import useAuth from '@/hooks/useAuth';
 import useVisits from '@/hooks/useVisits';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Visit } from '@/types';
+
+const { width } = Dimensions.get('window');
+
+const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: string }> = {
+  draft: { color: '#666', bg: '#f0f0f0', icon: 'file-edit' },
+  submitted: { color: '#0066cc', bg: '#e3f2fd', icon: 'send' },
+  pending_approval: { color: '#f57c00', bg: '#fff3e0', icon: 'clock-outline' },
+  approved: { color: '#2e7d32', bg: '#e8f5e9', icon: 'check-circle' },
+  rejected: { color: '#d32f2f', bg: '#ffebee', icon: 'close-circle' },
+  completed: { color: '#1565c0', bg: '#e3f2fd', icon: 'flag-checkered' },
+};
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuth();
-  const { visits, loading, fetchVisits, error } = useVisits(user?.id);
-  const [refreshing, setRefreshing] = React.useState(false);
+  const { user, loading: authLoading } = useAuth();
+  const { visits, loading, fetchVisits } = useVisits(user?.id);
+  const [greeting, setGreeting] = useState('');
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchVisits();
-    }, [fetchVisits])
-  );
+  useEffect(() => {
+    const h = new Date().getHours();
+    setGreeting(h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening');
+  }, []);
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchVisits();
-    setRefreshing(false);
-  };
+  useFocusEffect(useCallback(() => { fetchVisits(); }, []));
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      draft: '#999',
-      submitted: '#ff9800',
-      pending_approval: '#2196f3',
-      approved: '#4caf50',
-      rejected: '#f44336',
-      completed: '#8bc34a',
-    };
-    return colors[status] || '#999';
-  };
-
-  const getStatusIcon = (status: string) => {
-    const icons: Record<string, string> = {
-      draft: 'file-document',
-      submitted: 'send',
-      pending_approval: 'clock',
-      approved: 'check-circle',
-      rejected: 'alert-circle',
-      completed: 'check-all',
-    };
-    return icons[status] || 'file';
-  };
-
-  const renderVisit = ({ item }: { item: Visit }) => (
-    <TouchableOpacity
-      style={styles.visitCard}
-      onPress={() => router.push(`/visit/${item.id}`)}
-    >
-      <View style={styles.visitHeader}>
-        <View style={styles.visitTitle}>
-          <Text style={styles.visitName} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.visitLocation} numberOfLines={1}>
-            {item.location_name}
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.statusBadge,
-            { backgroundColor: getStatusColor(item.status) + '20' },
-          ]}
-        >
-          <MaterialCommunityIcons
-            name={getStatusIcon(item.status)}
-            size={16}
-            color={getStatusColor(item.status)}
-          />
-          <Text
-            style={[
-              styles.statusText,
-              { color: getStatusColor(item.status) },
-            ]}
-          >
-            {item.status.replace('_', ' ')}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.visitFooter}>
-        <Text style={styles.visitDate}>
-          {new Date(item.visited_date).toLocaleDateString()}
-        </Text>
-        <MaterialCommunityIcons
-          name="chevron-right"
-          size={20}
-          color="#0066cc"
-        />
-      </View>
-    </TouchableOpacity>
-  );
-
-  if (loading && !refreshing) {
+  if (authLoading) {
     return (
-      <View style={styles.centerContainer}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#0066cc" />
       </View>
     );
   }
 
+  if (!user) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>User not authenticated</Text>
+      </View>
+    );
+  }
+
+  const stats = {
+    total: visits.length,
+    approved: visits.filter(v => v.status === 'approved' || v.status === 'completed').length,
+    pending: visits.filter(v => v.status === 'pending_approval' || v.status === 'submitted').length,
+    rejected: visits.filter(v => v.status === 'rejected').length,
+    drafts: visits.filter(v => v.status === 'draft').length,
+    completionRate: visits.length > 0 ? Math.round((visits.filter(v => v.status === 'completed' || v.status === 'approved').length / visits.length) * 100) : 0,
+  };
+
+  const recentVisits = [...visits].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
+
+  const quickActions = [
+    { icon: 'plus-circle', label: 'New Visit', color: '#0066cc', route: '/(tabs)/create' },
+    { icon: 'clipboard-check', label: 'Approvals', color: '#f57c00', route: '/(tabs)/approvals' },
+    { icon: 'chart-bar', label: 'Reports', color: '#7b1fa2', route: '/(tabs)/analytics' },
+    { icon: 'account', label: 'Profile', color: '#00796b', route: '/(tabs)/profile' },
+  ];
+
+  const formatDate = (d: string) => {
+    const date = new Date(d);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    if (diff < 172800000) return 'Yesterday';
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  };
+
+  const renderVisitItem = ({ item }: { item: Visit }) => {
+    const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.draft;
+    return (
+      <TouchableOpacity
+        style={styles.visitCard}
+        onPress={() => router.push({ pathname: '/(tabs)/visit-detail', params: { id: item.id } })}
+        activeOpacity={0.7}
+      >
+        <View style={styles.visitHeader}>
+          <View style={[styles.statusDot, { backgroundColor: cfg.color }]} />
+          <View style={styles.visitInfo}>
+            <Text style={styles.visitTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={styles.visitLocation} numberOfLines={1}>
+              <MaterialCommunityIcons name="map-marker" size={12} color="#999" /> {item.location_name || 'No location'}
+            </Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
+            <MaterialCommunityIcons name={cfg.icon as any} size={12} color={cfg.color} />
+            <Text style={[styles.statusText, { color: cfg.color }]}>{item.status.replace('_', ' ')}</Text>
+          </View>
+        </View>
+        <View style={styles.visitFooter}>
+          <Text style={styles.visitDate}>
+            <MaterialCommunityIcons name="calendar" size={12} color="#bbb" /> {formatDate(item.created_at)}
+          </Text>
+          <View style={styles.geoTag}>
+            <MaterialCommunityIcons name="crosshairs-gps" size={12} color="#0066cc" />
+            <Text style={styles.geoText}>{item.latitude?.toFixed(4)}, {item.longitude?.toFixed(4)}</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.greeting}>Welcome, {user?.full_name}!</Text>
-        <Text style={styles.subtitle}>
-          {visits.length} visits | Role: {user?.role?.replace('_', ' ')}
-        </Text>
-      </View>
+      <StatusBar barStyle="dark-content" backgroundColor="#f5f7fa" />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={fetchVisits} tintColor="#0066cc" />}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.greeting}>{greeting} 👋</Text>
+            <Text style={styles.userName}>{user?.full_name || 'Officer'}</Text>
+            <Text style={styles.roleTag}>{user?.role?.replace('_', ' ').toUpperCase() || 'FIELD OFFICER'}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.notifButton}
+            onPress={() => router.push('/(tabs)/approvals')}
+          >
+            <MaterialCommunityIcons name="bell-outline" size={24} color="#333" />
+            {stats.pending > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{stats.pending}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.statsContainer}>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{visits.length}</Text>
-          <Text style={styles.statLabel}>Total Visits</Text>
+        {/* Stats Grid */}
+        <View style={styles.statsGrid}>
+          <View style={[styles.statCard, { backgroundColor: '#e3f2fd' }]}>
+            <MaterialCommunityIcons name="clipboard-list" size={24} color="#0066cc" />
+            <Text style={styles.statNumber}>{stats.total}</Text>
+            <Text style={styles.statLabel}>Total Visits</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#e8f5e9' }]}>
+            <MaterialCommunityIcons name="check-circle" size={24} color="#2e7d32" />
+            <Text style={styles.statNumber}>{stats.approved}</Text>
+            <Text style={styles.statLabel}>Approved</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#fff3e0' }]}>
+            <MaterialCommunityIcons name="clock-outline" size={24} color="#f57c00" />
+            <Text style={styles.statNumber}>{stats.pending}</Text>
+            <Text style={styles.statLabel}>Pending</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#ffebee' }]}>
+            <MaterialCommunityIcons name="close-circle" size={24} color="#d32f2f" />
+            <Text style={styles.statNumber}>{stats.rejected}</Text>
+            <Text style={styles.statLabel}>Rejected</Text>
+          </View>
         </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {visits.filter((v) => v.status === 'approved').length}
-          </Text>
-          <Text style={styles.statLabel}>Approved</Text>
-        </View>
-        <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {visits.filter((v) => v.status === 'draft').length}
-          </Text>
-          <Text style={styles.statLabel}>Drafts</Text>
-        </View>
-      </View>
 
-      {error && (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error.message}</Text>
+        {/* Completion Rate */}
+        <View style={styles.completionCard}>
+          <View style={styles.completionHeader}>
+            <Text style={styles.completionTitle}>Completion Rate</Text>
+            <Text style={styles.completionPercent}>{stats.completionRate}%</Text>
+          </View>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${stats.completionRate}%` }]} />
+          </View>
+          <View style={styles.completionFooter}>
+            <Text style={styles.completionSub}>{stats.approved} of {stats.total} visits completed</Text>
+            <Text style={styles.completionSub}>{stats.drafts} drafts</Text>
+          </View>
         </View>
-      )}
 
-      {visits.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <MaterialCommunityIcons name="file-document-outline" size={64} color="#ccc" />
-          <Text style={styles.emptyText}>No visits yet</Text>
-          <Text style={styles.emptySubtext}>Create your first visit to get started</Text>
+        {/* Quick Actions */}
+        <Text style={styles.sectionTitle}>Quick Actions</Text>
+        <View style={styles.actionsRow}>
+          {quickActions.map((a) => (
+            <TouchableOpacity
+              key={a.label}
+              style={styles.actionButton}
+              onPress={() => router.push(a.route as any)}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: a.color + '15' }]}>
+                <MaterialCommunityIcons name={a.icon as any} size={24} color={a.color} />
+              </View>
+              <Text style={styles.actionLabel}>{a.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      ) : (
-        <FlatList
-          data={visits}
-          renderItem={renderVisit}
-          keyExtractor={(item) => item.id}
-          style={styles.listContainer}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        />
-      )}
+
+        {/* Recent Visits */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent Visits</Text>
+          <TouchableOpacity>
+            <Text style={styles.seeAll}>See All</Text>
+          </TouchableOpacity>
+        </View>
+
+        {recentVisits.length === 0 ? (
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons name="map-marker-plus" size={48} color="#ccc" />
+            <Text style={styles.emptyTitle}>No visits yet</Text>
+            <Text style={styles.emptySubtitle}>Create your first field visit to get started</Text>
+            <TouchableOpacity style={styles.emptyButton} onPress={() => router.push('/(tabs)/create')}>
+              <MaterialCommunityIcons name="plus" size={18} color="white" />
+              <Text style={styles.emptyButtonText}>Create Visit</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          recentVisits.map((visit) => (
+            <View key={visit.id}>{renderVisitItem({ item: visit })}</View>
+          ))
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  centerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    backgroundColor: '#0066cc',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 20,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#ccc',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    gap: 10,
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#0066cc',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-  },
-  errorContainer: {
-    backgroundColor: '#ffebee',
-    marginHorizontal: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  errorText: {
-    color: '#c62828',
-    fontSize: 14,
-  },
-  listContainer: {
-    flex: 1,
-  },
-  listContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-  },
-  visitCard: {
-    backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 12,
-  },
-  visitHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  visitTitle: {
-    flex: 1,
-  },
-  visitName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
-  },
-  visitLocation: {
-    fontSize: 14,
-    color: '#666',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    alignItems: 'center',
-    gap: 4,
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
-  visitFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  visitDate: {
-    fontSize: 12,
-    color: '#999',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    textAlign: 'center',
-  },
+  container: { flex: 1, backgroundColor: '#f5f7fa' },
+  scrollContent: { padding: 16, paddingTop: 50 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  greeting: { fontSize: 14, color: '#999' },
+  userName: { fontSize: 24, fontWeight: '800', color: '#1a1a1a', marginTop: 2 },
+  roleTag: { fontSize: 11, color: '#0066cc', fontWeight: '700', marginTop: 4, backgroundColor: '#e3f2fd', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },
+  notifButton: { padding: 8, marginTop: 4 },
+  notifBadge: { position: 'absolute', top: 4, right: 4, backgroundColor: '#d32f2f', width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
+  notifBadgeText: { color: 'white', fontSize: 10, fontWeight: '800' },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
+  statCard: { width: (width - 42) / 2, borderRadius: 14, padding: 14, gap: 4 },
+  statNumber: { fontSize: 28, fontWeight: '800', color: '#1a1a1a' },
+  statLabel: { fontSize: 12, color: '#666', fontWeight: '600' },
+  completionCard: { backgroundColor: 'white', borderRadius: 14, padding: 16, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
+  completionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  completionTitle: { fontSize: 15, fontWeight: '700', color: '#333' },
+  completionPercent: { fontSize: 18, fontWeight: '800', color: '#0066cc' },
+  progressBarBg: { height: 8, backgroundColor: '#e0e0e0', borderRadius: 4, overflow: 'hidden' },
+  progressBarFill: { height: 8, backgroundColor: '#0066cc', borderRadius: 4 },
+  completionFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  completionSub: { fontSize: 11, color: '#999' },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#333', marginBottom: 12 },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  seeAll: { fontSize: 13, color: '#0066cc', fontWeight: '600' },
+  actionsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24 },
+  actionButton: { alignItems: 'center', width: (width - 64) / 4 },
+  actionIcon: { width: 52, height: 52, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 6 },
+  actionLabel: { fontSize: 11, color: '#666', fontWeight: '600' },
+  visitCard: { backgroundColor: 'white', borderRadius: 12, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 1 },
+  visitHeader: { flexDirection: 'row', alignItems: 'center' },
+  statusDot: { width: 10, height: 10, borderRadius: 5, marginRight: 10 },
+  visitInfo: { flex: 1, marginRight: 8 },
+  visitTitle: { fontSize: 15, fontWeight: '700', color: '#333' },
+  visitLocation: { fontSize: 12, color: '#999', marginTop: 2 },
+  statusBadge: { flexDirection: 'row', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, alignItems: 'center', gap: 4 },
+  statusText: { fontSize: 10, fontWeight: '700', textTransform: 'capitalize' },
+  visitFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  visitDate: { fontSize: 11, color: '#bbb' },
+  geoTag: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  geoText: { fontSize: 10, color: '#0066cc', fontWeight: '500' },
+  emptyState: { alignItems: 'center', paddingVertical: 40, backgroundColor: 'white', borderRadius: 14, marginTop: 8 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#999', marginTop: 12 },
+  emptySubtitle: { fontSize: 13, color: '#bbb', marginTop: 4, marginBottom: 16 },
+  emptyButton: { flexDirection: 'row', backgroundColor: '#0066cc', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, alignItems: 'center', gap: 6 },
+  emptyButtonText: { color: 'white', fontWeight: '700' },
 });

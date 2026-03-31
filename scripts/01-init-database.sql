@@ -14,6 +14,9 @@ CREATE TABLE users (
   full_name VARCHAR(255) NOT NULL,
   phone VARCHAR(20),
   role user_role NOT NULL DEFAULT 'field_officer',
+  department VARCHAR(100),
+  zone VARCHAR(100),
+  employee_id VARCHAR(100),
   district_id UUID,
   profile_photo_url VARCHAR(500),
   fingerprint_enrolled BOOLEAN DEFAULT FALSE,
@@ -157,6 +160,12 @@ CREATE POLICY "Admins can view all users" ON users
   FOR SELECT USING (
     EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin')
   );
+
+CREATE POLICY "Users can insert own profile" ON users
+  FOR INSERT WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile" ON users
+  FOR UPDATE USING (auth.uid() = id);
 
 -- Field Visits: Field officers see own, HOD/Collector/Admin see filtered
 CREATE POLICY "Field officers see own visits" ON field_visits

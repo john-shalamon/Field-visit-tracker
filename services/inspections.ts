@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 export const inspectionsService = {
   // Create a new inspection
   async createInspection(visitId: string, inspection: CreateInspectionForm) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('inspections')
@@ -30,6 +31,7 @@ export const inspectionsService = {
 
   // Get inspections for a visit
   async getVisitInspections(visitId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('inspections')
@@ -48,6 +50,7 @@ export const inspectionsService = {
 
   // Get a single inspection
   async getInspection(inspectionId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('inspections')
@@ -66,6 +69,7 @@ export const inspectionsService = {
 
   // Update inspection
   async updateInspection(inspectionId: string, updates: Partial<Inspection>) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('inspections')
@@ -85,6 +89,7 @@ export const inspectionsService = {
 
   // Submit inspection for approval
   async submitInspection(inspectionId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('inspections')
@@ -104,6 +109,7 @@ export const inspectionsService = {
 
   // Get pending inspections
   async getPendingInspections() {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('inspections')

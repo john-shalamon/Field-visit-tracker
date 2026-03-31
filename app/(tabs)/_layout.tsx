@@ -6,24 +6,35 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: '#0066cc',
-        tabBarInactiveTintColor: '#666',
+        tabBarInactiveTintColor: '#999',
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopWidth: 1,
+          borderTopColor: '#eee',
+          height: 60,
+          paddingBottom: 8,
+          paddingTop: 4,
+        },
         headerStyle: {
           backgroundColor: '#fff',
+          elevation: 0,
+          shadowOpacity: 0,
         },
         headerTintColor: '#0066cc',
         headerTitleStyle: {
           fontWeight: 'bold',
+          fontSize: 18,
         },
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Home',
+          title: 'Dashboard',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="home" color={color} size={size} />
+            <MaterialCommunityIcons name="view-dashboard" color={color} size={size} />
           ),
-          headerShown: true,
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -33,7 +44,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="plus-circle" color={color} size={size} />
           ),
-          headerShown: true,
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -43,17 +54,17 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <MaterialCommunityIcons name="clipboard-check" color={color} size={size} />
           ),
-          headerShown: true,
+          headerShown: false,
         }}
       />
       <Tabs.Screen
         name="analytics"
         options={{
-          title: 'Analytics',
+          title: 'Reports',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="chart-line" color={color} size={size} />
+            <MaterialCommunityIcons name="chart-bar" color={color} size={size} />
           ),
-          headerShown: true,
+          headerShown: false,
         }}
       />
       <Tabs.Screen
@@ -61,8 +72,16 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="account" color={color} size={size} />
+            <MaterialCommunityIcons name="account-circle" color={color} size={size} />
           ),
+          headerShown: false,
+        }}
+      />
+      <Tabs.Screen
+        name="visit-detail"
+        options={{
+          href: null,
+          headerTitle: 'Visit Details',
           headerShown: true,
         }}
       />

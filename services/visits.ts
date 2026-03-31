@@ -1,6 +1,5 @@
 import supabase from './supabase';
 import { Visit, CreateVisitForm, VisitStatus } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
 
 export const visitsService = {
   // Create a new visit
@@ -13,7 +12,6 @@ export const visitsService = {
         .from('visits')
         .insert([
           {
-            id: uuidv4(),
             user_id: userId,
             ...visit,
             status: 'draft',
@@ -33,6 +31,7 @@ export const visitsService = {
 
   // Get all visits for a user
   async getUserVisits(userId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')
@@ -51,6 +50,7 @@ export const visitsService = {
 
   // Get a single visit
   async getVisit(visitId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')
@@ -69,6 +69,7 @@ export const visitsService = {
 
   // Update visit
   async updateVisit(visitId: string, updates: Partial<Visit>) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')
@@ -88,6 +89,7 @@ export const visitsService = {
 
   // Submit visit for approval
   async submitVisit(visitId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')
@@ -107,6 +109,7 @@ export const visitsService = {
 
   // Get visits pending approval
   async getPendingApprovals(role: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')
@@ -125,6 +128,7 @@ export const visitsService = {
 
   // Approve visit
   async approveVisit(visitId: string, approverId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       // Update visit status
       const { data: visitData, error: visitError } = await supabase
@@ -136,21 +140,6 @@ export const visitsService = {
 
       if (visitError) throw visitError;
 
-      // Create approval record
-      const { error: approvalError } = await supabase
-        .from('approvals')
-        .insert([
-          {
-            id: uuidv4(),
-            inspection_id: visitId,
-            approver_id: approverId,
-            status: 'approved',
-            approved_at: new Date().toISOString(),
-          },
-        ]);
-
-      if (approvalError) throw approvalError;
-
       return { data: visitData, error: null };
     } catch (error) {
       console.error('Approve visit error:', error);
@@ -160,6 +149,7 @@ export const visitsService = {
 
   // Reject visit
   async rejectVisit(visitId: string, approverId: string, comments: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       // Update visit status
       const { data: visitData, error: visitError } = await supabase
@@ -171,21 +161,6 @@ export const visitsService = {
 
       if (visitError) throw visitError;
 
-      // Create rejection record
-      const { error: approvalError } = await supabase
-        .from('approvals')
-        .insert([
-          {
-            id: uuidv4(),
-            inspection_id: visitId,
-            approver_id: approverId,
-            status: 'rejected',
-            comments,
-          },
-        ]);
-
-      if (approvalError) throw approvalError;
-
       return { data: visitData, error: null };
     } catch (error) {
       console.error('Reject visit error:', error);
@@ -195,6 +170,7 @@ export const visitsService = {
 
   // Delete visit
   async deleteVisit(visitId: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { error } = await supabase
         .from('visits')
@@ -212,6 +188,7 @@ export const visitsService = {
 
   // Get visits by date range
   async getVisitsByDateRange(userId: string, startDate: string, endDate: string) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')
@@ -232,6 +209,7 @@ export const visitsService = {
 
   // Get visits by status
   async getVisitsByStatus(userId: string, status: VisitStatus) {
+    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
       const { data, error } = await supabase
         .from('visits')

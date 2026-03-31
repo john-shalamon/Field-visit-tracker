@@ -162,7 +162,35 @@ pnpm android
 
 # Run web version
 pnpm web
+
+# Build static website output
+pnpm web:build
+
+# Serve built website locally (from dist/)
+pnpm web:serve
 ```
+
+## 🌐 Run As Website
+
+This project is already written in React (Expo + React Native) and supports web.
+
+Use these commands:
+
+```bash
+# Install dependencies
+npm install
+
+# Run website in development mode
+npm run web
+
+# Build production website files
+npm run web:build
+
+# Serve production build locally
+npm run web:serve
+```
+
+Production web files are generated in `dist/`.
 
 ### Adding Dependencies
 

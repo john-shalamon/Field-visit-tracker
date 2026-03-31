@@ -9,6 +9,7 @@ export interface User {
   role: UserRole;
   department?: string;
   zone?: string;
+  employee_id?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;

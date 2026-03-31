@@ -4,6 +4,7 @@ import { AnalyticsData } from '@/types';
 export const analyticsService = {
   // Get analytics dashboard data
   async getAnalyticsDashboard(userId?: string): Promise<AnalyticsData | null> {
+    if (!supabase) return null;
     try {
       // Total visits
       let visitsQuery = supabase.from('visits').select('*', { count: 'exact' });
