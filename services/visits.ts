@@ -1,28 +1,23 @@
-import supabase from './supabase';
 import { Visit, CreateVisitForm, VisitStatus } from '@/types';
+import { VisitStorage, OfflineQueue, SyncStatus } from './localStorage';
+import { v4 as uuidv4 } from 'uuid';
 
 export const visitsService = {
   // Create a new visit
   async createVisit(userId: string, visit: CreateVisitForm) {
-    if (!supabase) {
-      return { data: null, error: { message: 'Supabase not configured' } };
-    }
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .insert([
-          {
-            user_id: userId,
-            ...visit,
-            status: 'draft',
-          },
-        ])
-        .select()
-        .single();
+      const localVisit: Visit = {
+        id: uuidv4(),
+        user_id: userId,
+        ...visit,
+        status: 'draft' as VisitStatus,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
-      if (error) throw error;
+      await VisitStorage.addVisit(localVisit);
 
-      return { data, error: null };
+      return { data: localVisit, error: null };
     } catch (error) {
       console.error('Create visit error:', error);
       return { data: null, error };
@@ -31,17 +26,10 @@ export const visitsService = {
 
   // Get all visits for a user
   async getUserVisits(userId: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const userVisits = visits?.filter(v => v.user_id === userId) || [];
+      return { data: userVisits, error: null };
     } catch (error) {
       console.error('Get user visits error:', error);
       return { data: null, error };
@@ -50,17 +38,10 @@ export const visitsService = {
 
   // Get a single visit
   async getVisit(visitId: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .select('*')
-        .eq('id', visitId)
-        .single();
-
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const visit = visits?.find(v => v.id === visitId);
+      return { data: visit || null, error: visit ? null : { message: 'Visit not found' } };
     } catch (error) {
       console.error('Get visit error:', error);
       return { data: null, error };
@@ -69,18 +50,12 @@ export const visitsService = {
 
   // Update visit
   async updateVisit(visitId: string, updates: Partial<Visit>) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .update(updates)
-        .eq('id', visitId)
-        .select()
-        .single();
+      await VisitStorage.updateVisit(visitId, { ...updates, updated_at: new Date().toISOString() });
 
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const updatedVisit = visits?.find(v => v.id === visitId);
+      return { data: updatedVisit, error: null };
     } catch (error) {
       console.error('Update visit error:', error);
       return { data: null, error };
@@ -89,37 +64,27 @@ export const visitsService = {
 
   // Submit visit for approval
   async submitVisit(visitId: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .update({ status: 'submitted' as VisitStatus })
-        .eq('id', visitId)
-        .select()
-        .single();
+      await VisitStorage.updateVisit(visitId, {
+        status: 'submitted' as VisitStatus,
+        updated_at: new Date().toISOString()
+      });
 
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const updatedVisit = visits?.find(v => v.id === visitId);
+      return { data: updatedVisit, error: null };
     } catch (error) {
       console.error('Submit visit error:', error);
       return { data: null, error };
     }
   },
 
-  // Get visits pending approval
-  async getPendingApprovals(role: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
+  // Get pending approvals (local implementation)
+  async getPendingApprovals() {
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .select('*')
-        .eq('status', 'submitted')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const pendingVisits = visits?.filter(v => v.status === 'submitted') || [];
+      return { data: pendingVisits, error: null };
     } catch (error) {
       console.error('Get pending approvals error:', error);
       return { data: null, error };
@@ -128,19 +93,15 @@ export const visitsService = {
 
   // Approve visit
   async approveVisit(visitId: string, approverId: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      // Update visit status
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .update({ status: 'approved' as VisitStatus })
-        .eq('id', visitId)
-        .select()
-        .single();
+      await VisitStorage.updateVisit(visitId, {
+        status: 'approved' as VisitStatus,
+        updated_at: new Date().toISOString()
+      });
 
-      if (visitError) throw visitError;
-
-      return { data: visitData, error: null };
+      const visits = await VisitStorage.getVisits();
+      const updatedVisit = visits?.find(v => v.id === visitId);
+      return { data: updatedVisit, error: null };
     } catch (error) {
       console.error('Approve visit error:', error);
       return { data: null, error };
@@ -149,19 +110,15 @@ export const visitsService = {
 
   // Reject visit
   async rejectVisit(visitId: string, approverId: string, comments: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      // Update visit status
-      const { data: visitData, error: visitError } = await supabase
-        .from('visits')
-        .update({ status: 'rejected' as VisitStatus })
-        .eq('id', visitId)
-        .select()
-        .single();
+      await VisitStorage.updateVisit(visitId, {
+        status: 'rejected' as VisitStatus,
+        updated_at: new Date().toISOString()
+      });
 
-      if (visitError) throw visitError;
-
-      return { data: visitData, error: null };
+      const visits = await VisitStorage.getVisits();
+      const updatedVisit = visits?.find(v => v.id === visitId);
+      return { data: updatedVisit, error: null };
     } catch (error) {
       console.error('Reject visit error:', error);
       return { data: null, error };
@@ -170,15 +127,8 @@ export const visitsService = {
 
   // Delete visit
   async deleteVisit(visitId: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { error } = await supabase
-        .from('visits')
-        .delete()
-        .eq('id', visitId);
-
-      if (error) throw error;
-
+      await VisitStorage.removeVisit(visitId);
       return { error: null };
     } catch (error) {
       console.error('Delete visit error:', error);
@@ -188,19 +138,14 @@ export const visitsService = {
 
   // Get visits by date range
   async getVisitsByDateRange(userId: string, startDate: string, endDate: string) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('visited_date', startDate)
-        .lte('visited_date', endDate)
-        .order('visited_date', { ascending: false });
-
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const filtered = visits?.filter(v =>
+        v.user_id === userId &&
+        v.visited_date >= startDate &&
+        v.visited_date <= endDate
+      ) || [];
+      return { data: filtered, error: null };
     } catch (error) {
       console.error('Get visits by date range error:', error);
       return { data: null, error };
@@ -209,20 +154,44 @@ export const visitsService = {
 
   // Get visits by status
   async getVisitsByStatus(userId: string, status: VisitStatus) {
-    if (!supabase) return { data: null, error: { message: 'Supabase not configured' } };
     try {
-      const { data, error } = await supabase
-        .from('visits')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', status)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      return { data, error: null };
+      const visits = await VisitStorage.getVisits();
+      const filtered = visits?.filter(v => v.user_id === userId && v.status === status) || [];
+      return { data: filtered, error: null };
     } catch (error) {
       console.error('Get visits by status error:', error);
+      return { data: null, error };
+    }
+  },
+
+  // Get all visits (for admin purposes)
+  async getAllVisits() {
+    try {
+      const visits = await VisitStorage.getVisits();
+      return { data: visits || [], error: null };
+    } catch (error) {
+      console.error('Get all visits error:', error);
+      return { data: null, error };
+    }
+  },
+
+  // Get visit statistics
+  async getVisitStats(userId: string) {
+    try {
+      const visits = await VisitStorage.getVisits();
+      const userVisits = visits?.filter(v => v.user_id === userId) || [];
+
+      const stats = {
+        total: userVisits.length,
+        draft: userVisits.filter(v => v.status === 'draft').length,
+        submitted: userVisits.filter(v => v.status === 'submitted').length,
+        approved: userVisits.filter(v => v.status === 'approved').length,
+        rejected: userVisits.filter(v => v.status === 'rejected').length,
+      };
+
+      return { data: stats, error: null };
+    } catch (error) {
+      console.error('Get visit stats error:', error);
       return { data: null, error };
     }
   },

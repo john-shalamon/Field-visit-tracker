@@ -1,8 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext, createContext } from 'react';
+import authService from '@/services/auth';
 import { User } from '@/types';
-import { authService } from '../services/auth';
 
-export interface AuthContextType {
+interface AuthContextType {
   user: User | null;
   loading: boolean;
   signUp: (data: {
@@ -14,12 +14,12 @@ export interface AuthContextType {
     department?: string;
     zone?: string;
     employeeId?: string;
-  }) => Promise<{ data: any; error: any }>;
-  signIn: (email: string, password: string) => Promise<{ data: any; error: any }>;
-  sendOtp: (phone: string) => Promise<{ error: any }>;
-  verifyOtp: (phone: string, token: string) => Promise<{ data: any; error: any }>;
+  }) => Promise<any>;
+  signIn: (email: string, password: string) => Promise<any>;
+  sendOtp: (phone: string) => Promise<any>;
+  verifyOtp: (phone: string, token: string) => Promise<any>;
   signOut: () => Promise<void>;
-  biometricAuth: () => Promise<{ success: boolean }>;
+  biometricAuth: () => Promise<any>;
   enableBiometric: (credentials?: { email: string; password: string }) => Promise<void>;
   disableBiometric: () => Promise<void>;
 }
@@ -52,6 +52,160 @@ const useAuthState = (): AuthContextType => {
 
     checkSession();
   }, []);
+
+  const signUp = useCallback(
+    async (data: {
+      email: string;
+      password: string;
+      fullName: string;
+      phone?: string;
+      role?: string;
+      department?: string;
+      zone?: string;
+      employeeId?: string;
+    }) => {
+      setLoading(true);
+      try {
+        const result = await authService.signUp(data);
+        if (result.error) {
+          const errorMsg = result.error instanceof Error ? result.error.message : String(result.error);
+          throw new Error(errorMsg);
+        }
+        setUser(result.data?.user as User ?? null);
+        return result;
+      } catch (error) {
+        console.error('Sign up error:', error);
+        throw error;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const result = await authService.signIn(email, password);
+      if (result.error) {
+        const errorMsg = result.error instanceof Error ? result.error.message : String(result.error);
+        throw new Error(errorMsg);
+      }
+      setUser(result.data?.user as User ?? null);
+      return result;
+    } catch (error) {
+      console.error('Sign in error:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const sendOtp = useCallback(async (phone: string) => {
+    setLoading(true);
+    try {
+      const result = await authService.sendOtp(phone);
+      if (result.error) {
+        const errorMsg = result.error instanceof Error ? result.error.message : String(result.error);
+        throw new Error(errorMsg);
+      }
+      return result;
+    } catch (error) {
+      console.error('Send OTP error:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const verifyOtp = useCallback(async (phone: string, token: string) => {
+    setLoading(true);
+    try {
+      const result = await authService.verifyOtp(phone, token);
+      if (result.error) {
+        const errorMsg = result.error instanceof Error ? result.error.message : String(result.error);
+        throw new Error(errorMsg);
+      }
+      setUser(result.data?.user as User ?? null);
+      return result;
+    } catch (error) {
+      console.error('Verify OTP error:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const signOut = useCallback(async () => {
+    setLoading(true);
+    try {
+      await authService.signOut();
+      setUser(null);
+    } catch (error) {
+      console.error('Sign out error:', error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const biometricAuth = useCallback(async () => {
+    try {
+      const result = await authService.authenticateWithBiometric();
+      if (!result) throw new Error('Biometric authentication failed');
+      return { success: true };
+    } catch (error) {
+      console.error('Biometric auth error:', error);
+      throw error;
+    }
+  }, []);
+
+  const enableBiometric = useCallback(async (credentials?: { email: string; password: string }) => {
+    try {
+      await authService.enableBiometric();
+    } catch (error) {
+      console.error('Enable biometric error:', error);
+      throw error;
+    }
+  }, []);
+
+  const disableBiometric = useCallback(async () => {
+    try {
+      await authService.disableBiometric();
+    } catch (error) {
+      console.error('Disable biometric error:', error);
+      throw error;
+    }
+  }, []);
+
+  return {
+    user,
+    loading,
+    signUp,
+    signIn,
+    sendOtp,
+    verifyOtp,
+    signOut,
+    biometricAuth,
+    enableBiometric,
+    disableBiometric,
+  };
+};
+
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+  const value = useAuthState();
+  return React.createElement(AuthContext.Provider, { value }, children);
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+export default useAuth;
 
   const signUp = useCallback(
     async (data: {
@@ -125,6 +279,7 @@ const useAuthState = (): AuthContextType => {
         const errorMsg = result.error instanceof Error ? result.error.message : String(result.error);
         throw new Error(errorMsg);
       }
+      setUser(result.data?.user as User ?? null);
       return result;
     } catch (error) {
       console.error('Verify OTP error:', error);
@@ -137,7 +292,11 @@ const useAuthState = (): AuthContextType => {
   const signOut = useCallback(async () => {
     setLoading(true);
     try {
-      await authService.signOut();
+      const result = await authService.signOut();
+      if (result.error) {
+        const errorMsg = result.error instanceof Error ? result.error.message : String(result.error);
+        throw new Error(errorMsg);
+      }
       setUser(null);
     } catch (error) {
       console.error('Sign out error:', error);

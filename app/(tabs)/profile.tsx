@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import useAuth from '@/hooks/useAuth';
 import authService from '@/services/auth';
-
+import { VisitStorage } from '@/services/localStorage';
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, loading: authLoading, signOut, enableBiometric, disableBiometric } = useAuth();
@@ -25,6 +25,23 @@ export default function ProfileScreen() {
       } catch {}
     };
     check();
+  }, []);
+
+  // Load user preferences
+  React.useEffect(() => {
+    const loadPrefs = async () => {
+      try {
+        const prefs = await VisitStorage.getUserPreferences();
+        if (prefs) {
+          setOfflineMode(prefs.offlineMode || false);
+          setNotificationsEnabled(prefs.notificationsEnabled || true);
+          setDarkMode(prefs.darkMode || false);
+        }
+      } catch (error) {
+        console.error('Error loading preferences:', error);
+      }
+    };
+    loadPrefs();
   }, []);
 
   if (authLoading) {
@@ -53,6 +70,42 @@ export default function ProfileScreen() {
       setBiometricEnabled(value);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'Failed to toggle biometric');
+    }
+  };
+
+  const handleOfflineModeToggle = async (value: boolean) => {
+    try {
+      const prefs = await VisitStorage.getUserPreferences() || {};
+      prefs.offlineMode = value;
+      await VisitStorage.setUserPreferences(prefs);
+      setOfflineMode(value);
+    } catch (error) {
+      console.error('Error saving offline mode:', error);
+      Alert.alert('Error', 'Failed to save offline mode preference');
+    }
+  };
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    try {
+      const prefs = await VisitStorage.getUserPreferences() || {};
+      prefs.notificationsEnabled = value;
+      await VisitStorage.setUserPreferences(prefs);
+      setNotificationsEnabled(value);
+    } catch (error) {
+      console.error('Error saving notifications:', error);
+      Alert.alert('Error', 'Failed to save notification preference');
+    }
+  };
+
+  const handleDarkModeToggle = async (value: boolean) => {
+    try {
+      const prefs = await VisitStorage.getUserPreferences() || {};
+      prefs.darkMode = value;
+      await VisitStorage.setUserPreferences(prefs);
+      setDarkMode(value);
+    } catch (error) {
+      console.error('Error saving dark mode:', error);
+      Alert.alert('Error', 'Failed to save dark mode preference');
     }
   };
 
@@ -92,9 +145,9 @@ export default function ProfileScreen() {
     {
       title: 'Preferences',
       items: [
-        { icon: 'bell-ring', label: 'Notifications', color: '#2e7d32', toggle: true, value: notificationsEnabled, onToggle: setNotificationsEnabled },
-        { icon: 'cloud-off-outline', label: 'Offline Mode', color: '#455a64', toggle: true, value: offlineMode, onToggle: setOfflineMode },
-        { icon: 'theme-light-dark', label: 'Dark Mode', color: '#333', toggle: true, value: darkMode, onToggle: setDarkMode },
+        { icon: 'bell-ring', label: 'Notifications', color: '#2e7d32', toggle: true, value: notificationsEnabled, onToggle: handleNotificationsToggle },
+        { icon: 'cloud-off-outline', label: 'Offline Mode', color: '#455a64', toggle: true, value: offlineMode, onToggle: handleOfflineModeToggle },
+        { icon: 'theme-light-dark', label: 'Dark Mode', color: '#333', toggle: true, value: darkMode, onToggle: handleDarkModeToggle },
       ],
     },
     {

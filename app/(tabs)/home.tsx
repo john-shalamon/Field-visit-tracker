@@ -23,7 +23,7 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: string }>
 export default function HomeScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { visits, loading, fetchVisits } = useVisits(user?.id);
+  const { visits, loading, fetchVisits, syncing, offlineQueueLength, syncOfflineData } = useVisits(user?.id);
   const [greeting, setGreeting] = useState('');
 
   useEffect(() => {
@@ -126,17 +126,35 @@ export default function HomeScreen() {
             <Text style={styles.userName}>{user?.full_name || 'Officer'}</Text>
             <Text style={styles.roleTag}>{user?.role?.replace('_', ' ').toUpperCase() || 'FIELD OFFICER'}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.notifButton}
-            onPress={() => router.push('/(tabs)/approvals')}
-          >
-            <MaterialCommunityIcons name="bell-outline" size={24} color="#333" />
-            {stats.pending > 0 && (
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>{stats.pending}</Text>
-              </View>
+          <View style={styles.headerButtons}>
+            {offlineQueueLength > 0 && (
+              <TouchableOpacity
+                style={[styles.syncButton, syncing && styles.syncButtonDisabled]}
+                onPress={syncOfflineData}
+                disabled={syncing}
+              >
+                <MaterialCommunityIcons
+                  name={syncing ? "sync" : "sync-off"}
+                  size={20}
+                  color={syncing ? "#999" : "#0066cc"}
+                />
+                <Text style={[styles.syncText, syncing && styles.syncTextDisabled]}>
+                  {syncing ? 'Syncing...' : `${offlineQueueLength} pending`}
+                </Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.notifButton}
+              onPress={() => router.push('/(tabs)/approvals')}
+            >
+              <MaterialCommunityIcons name="bell-outline" size={24} color="#333" />
+              {stats.pending > 0 && (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeText}>{stats.pending}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Stats Grid */}
@@ -227,6 +245,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f7fa' },
   scrollContent: { padding: 16, paddingTop: 50 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  syncButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f8ff', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, gap: 4 },
+  syncButtonDisabled: { backgroundColor: '#f5f5f5' },
+  syncText: { fontSize: 11, color: '#0066cc', fontWeight: '600' },
+  syncTextDisabled: { color: '#999' },
   greeting: { fontSize: 14, color: '#999' },
   userName: { fontSize: 24, fontWeight: '800', color: '#1a1a1a', marginTop: 2 },
   roleTag: { fontSize: 11, color: '#0066cc', fontWeight: '700', marginTop: 4, backgroundColor: '#e3f2fd', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start' },

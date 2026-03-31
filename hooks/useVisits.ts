@@ -1,11 +1,42 @@
 import { useState, useCallback, useEffect } from 'react';
 import visitsService from '@/services/visits';
 import { Visit, CreateVisitForm, VisitStatus } from '@/types';
+import { OfflineQueue } from '@/services/localStorage';
 
 export const useVisits = (userId?: string) => {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<any>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [offlineQueueLength, setOfflineQueueLength] = useState(0);
+
+  // Check offline queue length
+  const checkOfflineQueue = useCallback(async () => {
+    try {
+      const length = await OfflineQueue.getQueueLength();
+      setOfflineQueueLength(length);
+    } catch (error) {
+      console.error('Error checking offline queue:', error);
+    }
+  }, []);
+
+  // Sync offline data
+  const syncOfflineData = useCallback(async () => {
+    if (!userId) return;
+    setSyncing(true);
+    try {
+      const result = await visitsService.syncOfflineData(userId);
+      if (result.success) {
+        // Refresh visits after sync
+        await fetchVisits();
+        await checkOfflineQueue();
+      }
+    } catch (error) {
+      console.error('Sync error:', error);
+    } finally {
+      setSyncing(false);
+    }
+  }, [userId]);
 
   // Fetch user visits
   const fetchVisits = useCallback(async () => {
@@ -27,7 +58,8 @@ export const useVisits = (userId?: string) => {
   // Auto-fetch on mount and when userId changes
   useEffect(() => {
     fetchVisits();
-  }, [fetchVisits]);
+    checkOfflineQueue();
+  }, [fetchVisits, checkOfflineQueue]);
 
   // Create visit
   const createVisit = useCallback(
@@ -165,6 +197,8 @@ export const useVisits = (userId?: string) => {
     visits,
     loading,
     error,
+    syncing,
+    offlineQueueLength,
     fetchVisits,
     createVisit,
     updateVisit,
@@ -174,6 +208,8 @@ export const useVisits = (userId?: string) => {
     deleteVisit,
     getVisitsByStatus,
     getPendingApprovals,
+    syncOfflineData,
+    checkOfflineQueue,
   };
 };
 

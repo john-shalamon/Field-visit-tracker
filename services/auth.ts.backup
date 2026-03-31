@@ -1,0 +1,616 @@
+import { User, AuthSession } from '@/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { Platform } from 'react-native';
+import { v4 as uuidv4 } from 'uuid';
+import * as SecureStore from 'expo-secure-store';
+import { LocalStorage } from './localStorage';
+
+// Secure store adapter for biometric credentials
+const SecureStoreAdapter = {
+  async getItemAsync(key: string): Promise<string | null> {
+    try {
+      return await SecureStore.getItemAsync(key);
+    } catch (error) {
+      console.error('Error getting secure item:', error);
+      return null;
+    }
+  },
+  async setItemAsync(key: string, value: string): Promise<void> {
+    try {
+      await SecureStore.setItemAsync(key, value);
+    } catch (error) {
+      console.error('Error setting secure item:', error);
+      throw error;
+    }
+  },
+  async deleteItemAsync(key: string): Promise<void> {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch (error) {
+      console.error('Error deleting secure item:', error);
+      throw error;
+    }
+  },
+};
+
+// Simple password hashing (for demo purposes - in production use proper hashing)
+const hashPassword = (password: string): string => {
+  // Simple hash for demo - in production use bcrypt or similar
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    const char = password.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return hash.toString();
+};
+
+const STORAGE_KEYS = {
+  USERS: 'local_users',
+  CURRENT_USER: 'current_user',
+  BIOMETRIC_ENABLED: 'biometric_enabled',
+};
+
+// Local user storage
+class LocalUserStorage {
+  static async getUsers(): Promise<User[]> {
+    try {
+      const usersJson = await AsyncStorage.getItem(STORAGE_KEYS.USERS);
+      return usersJson ? JSON.parse(usersJson) : [];
+    } catch (error) {
+      console.error('Error getting users:', error);
+      return [];
+    }
+  }
+
+  static async saveUsers(users: User[]): Promise<void> {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    } catch (error) {
+      console.error('Error saving users:', error);
+      throw error;
+    }
+  }
+
+  static async addUser(user: User): Promise<void> {
+    const users = await this.getUsers();
+    users.push(user);
+    await this.saveUsers(users);
+  }
+
+  static async updateUser(userId: string, updates: Partial<User>): Promise<void> {
+    const users = await this.getUsers();
+    const index = users.findIndex(u => u.id === userId);
+    if (index !== -1) {
+      users[index] = { ...users[index], ...updates };
+      await this.saveUsers(users);
+    }
+  }
+
+  static async findUserByEmail(email: string): Promise<User | null> {
+    const users = await this.getUsers();
+    return users.find(u => u.email === email) || null;
+  }
+
+  static async findUserById(id: string): Promise<User | null> {
+    const users = await this.getUsers();
+    return users.find(u => u.id === id) || null;
+  }
+}
+
+// Session management
+class LocalSessionManager {
+  static async getCurrentUser(): Promise<User | null> {
+    try {
+      const userJson = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      return userJson ? JSON.parse(userJson) : null;
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return null;
+    }
+  }
+
+  static async setCurrentUser(user: User | null): Promise<void> {
+    try {
+      if (user) {
+        await AsyncStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      }
+    } catch (error) {
+      console.error('Error setting current user:', error);
+      throw error;
+    }
+  }
+
+  static async signOut(): Promise<void> {
+    await this.setCurrentUser(null);
+  }
+}
+
+export const authService = {
+  // Sign up with email and password and create profile
+  async signUp(payload: {
+    email: string;
+    password: string;
+    fullName: string;
+    phone?: string;
+    role?: string;
+    department?: string;
+    zone?: string;
+    employeeId?: string;
+  }) {
+    try {
+      const { email, password, fullName, phone, role, department, zone, employeeId } = payload;
+
+      // Check if user already exists
+      const existingUser = await LocalUserStorage.findUserByEmail(email);
+      if (existingUser) {
+        return { data: null, error: new Error('User already exists with this email') };
+      }
+
+      // Create new user
+      const newUser: User = {
+        id: uuidv4(),
+        email,
+        full_name: fullName,
+        phone: phone || '',
+        role: (role as any) || 'field_officer',
+        department: department || undefined,
+        zone: zone || undefined,
+        employee_id: employeeId || undefined,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      // Store password hash separately (in production, use proper security)
+      const passwordHash = hashPassword(password);
+      await AsyncStorage.setItem(`password_${newUser.id}`, passwordHash);
+
+      // Save user
+      await LocalUserStorage.addUser(newUser);
+
+      // Auto sign in
+      await LocalSessionManager.setCurrentUser(newUser);
+
+      return { data: { user: newUser, session: { user: newUser } }, error: null };
+    } catch (error) {
+      console.error('Sign up error:', error);
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      return { data: null, error: new Error(errorMessage) };
+    }
+  },
+
+  // Sign in with email and password
+  async signIn(email: string, password: string) {
+    try {
+      console.log('Starting local sign in process for:', email);
+
+      // Find user by email
+      const user = await LocalUserStorage.findUserByEmail(email);
+      if (!user) {
+        return { data: null, error: new Error('Invalid email or password') };
+      }
+
+      // Check password
+      const storedHash = await AsyncStorage.getItem(`password_${user.id}`);
+      const inputHash = hashPassword(password);
+
+      if (storedHash !== inputHash) {
+        return { data: null, error: new Error('Invalid email or password') };
+      }
+
+      // Set current user
+      await LocalSessionManager.setCurrentUser(user);
+
+      console.log('Local sign in successful for user:', user.id);
+      return { data: { user, session: { user } }, error: null };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      return { data: null, error: new Error(errorMessage) };
+    }
+  },
+
+  // Get current user
+  async getCurrentUser(): Promise<User | null> {
+    return await LocalSessionManager.getCurrentUser();
+  },
+
+  // Sign out
+  async signOut(): Promise<void> {
+    await LocalSessionManager.signOut();
+  },
+
+  // Get user profile
+  async getUserProfile(userId: string): Promise<User | null> {
+    return await LocalUserStorage.findUserById(userId);
+  },
+
+  // Update user profile
+  async updateUserProfile(userId: string, updates: Partial<User>): Promise<void> {
+    await LocalUserStorage.updateUser(userId, { ...updates, updated_at: new Date().toISOString() });
+  },
+
+  // Biometric authentication
+  async isBiometricEnabled(): Promise<boolean> {
+    try {
+      const enabled = await AsyncStorage.getItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+      return enabled === 'true';
+    } catch {
+      return false;
+    }
+  },
+
+  async enableBiometric(): Promise<void> {
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+    if (!hasHardware || !isEnrolled) {
+      throw new Error('Biometric authentication not available');
+    }
+
+    await AsyncStorage.setItem(STORAGE_KEYS.BIOMETRIC_ENABLED, 'true');
+  },
+
+  async disableBiometric(): Promise<void> {
+    await AsyncStorage.removeItem(STORAGE_KEYS.BIOMETRIC_ENABLED);
+  },
+
+  async authenticateWithBiometric(): Promise<boolean> {
+    try {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to continue',
+        fallbackLabel: 'Use password',
+      });
+      return result.success;
+    } catch (error) {
+      console.error('Biometric authentication error:', error);
+      return false;
+    }
+  },
+
+  // Send OTP (placeholder for local implementation)
+  async sendOtp(phone: string): Promise<{ error: any }> {
+    console.log('OTP sent to:', phone);
+    // In a real implementation, this would send an SMS
+    return { error: null };
+  },
+
+  // Verify OTP (placeholder for local implementation)
+  async verifyOtp(phone: string, otp: string): Promise<{ data: any; error: any }> {
+    console.log('OTP verified for:', phone, otp);
+    // In a real implementation, this would verify the OTP
+    const user = await LocalUserStorage.findUserByEmail(phone); // Using phone as email for demo
+    if (user) {
+      await LocalSessionManager.setCurrentUser(user);
+      return { data: { user, session: { user } }, error: null };
+    }
+    return { data: null, error: new Error('Invalid OTP') };
+  },
+  async sendOtp(phone: string) {
+    if (!supabase) {
+      return { data: null, error: new Error('Supabase not configured') };
+    }
+    try {
+      const normalizedPhone = normalizePhoneNumber(phone);
+      console.log('Sending OTP to phone:', normalizedPhone);
+      
+      // Mark OTP flow as active to prevent redirects
+      await LocalStorage.setItem('otp_flow_active', 'true');
+      
+      // Use signInWithOtp with strict options to prevent redirects
+      // shouldCreateUser: false - prevents auto-redirect to signup/OAuth
+      // channel: 'sms' - explicitly requests SMS channel only
+      const { data, error } = await supabase.auth.signInWithOtp({ 
+        phone: normalizedPhone,
+        options: {
+          shouldCreateUser: false,
+          channel: 'sms',
+        }
+      });
+      
+      if (error) {
+        console.error('Supabase OTP error:', error);
+        // Clear the OTP flow flag on error
+        await LocalStorage.removeItem('otp_flow_active');
+        throw error;
+      }
+      
+      // Store OTP session info for verification
+      await LocalStorage.setItem('otp_phone', normalizedPhone);
+      if (data?.session) {
+        await LocalStorage.setItem('otp_session', JSON.stringify(data.session));
+      }
+      
+      // Clear the OTP flow flag - OTP sent successfully
+      await LocalStorage.removeItem('otp_flow_active');
+      
+      console.log('OTP sent successfully to:', normalizedPhone, 'Session:', !!data?.session);
+      return { data, error: null };
+    } catch (error) {
+      console.error('Send OTP error:', error);
+      // Clear the OTP flow flag on error
+      await LocalStorage.removeItem('otp_flow_active');
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      return { data: null, error: new Error(errorMessage) };
+    }
+  },
+
+  // Verify received OTP and log the user in
+  async verifyOtp(phone: string, token: string) {
+    if (!supabase) {
+      return { data: null, error: new Error('Supabase not configured') };
+    }
+    try {
+      const normalizedPhone = normalizePhoneNumber(phone);
+      
+      console.log('Verifying OTP for phone:', normalizedPhone);
+      
+      // Retrieve stored session info if available
+      const storedSession = await LocalStorage.getItem('otp_session');
+      console.log('Stored OTP session available:', !!storedSession);
+      
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: normalizedPhone,
+        token,
+        type: 'sms',
+      });
+      
+      if (error) {
+        console.error('Supabase OTP verification error:', error);
+        throw error;
+      }
+      
+      if (data?.user) {
+        // Fetch or create user profile
+        let userProfile = await this.getUserProfile(data.user.id);
+        if (!userProfile && data.user) {
+          // Create fallback profile if not found
+          userProfile = {
+            id: data.user.id,
+            email: data.user.email || '',
+            full_name: data.user.user_metadata?.full_name || 'User',
+            phone: normalizedPhone,
+            role: 'field_officer',
+            is_active: true,
+            created_at: data.user.created_at,
+            updated_at: new Date().toISOString(),
+          } as any;
+        }
+        
+        // Clean up OTP session data
+        await LocalStorage.removeItem('otp_phone');
+        await LocalStorage.removeItem('otp_session');
+        await LocalStorage.removeItem('otp_flow_active');
+        
+        console.log('OTP verified successfully for phone:', normalizedPhone);
+        return { data: { user: userProfile, session: data.session }, error: null };
+      }
+      
+      return { data, error: null };
+    } catch (error) {
+      console.error('Verify OTP error:', error);
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      return { data: null, error: new Error(errorMessage) };
+    }
+  },
+
+  // Sign out
+  async signOut() {
+    if (!supabase) {
+      return { error: new Error('Supabase not configured') };
+    }
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      // Clear biometric data
+      await LocalStorage.removeItem('biometric_enabled');
+
+      return { error: null };
+    } catch (error) {
+      console.error('Sign out error:', error);
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      return { error: new Error(errorMessage) };
+    }
+  },
+
+  // Get current session
+  async getSession(): Promise<AuthSession | null> {
+    if (!supabase) {
+      console.warn('Supabase not configured in getSession');
+      return null;
+    }
+    try {
+      console.log('Getting current session...');
+      
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('Session retrieval error:', error);
+        throw error;
+      }
+
+      if (!data.session) {
+        console.log('No session found');
+        return null;
+      }
+
+      console.log('Session found for user:', data.session.user.id);
+      
+      let userProfile = await this.getUserProfile(data.session.user.id);
+      if (!userProfile) {
+        console.log('User profile not found in getSession, using fallback');
+        userProfile = {
+          id: data.session.user.id,
+          email: data.session.user.email || '',
+          full_name: data.session.user.user_metadata?.full_name || data.session.user.email?.split('@')[0] || '',
+          phone: data.session.user.user_metadata?.phone || '',
+          role: 'field_officer',
+          is_active: true,
+          created_at: data.session.user.created_at,
+          updated_at: data.session.user.created_at,
+        } as any;
+      }
+
+      return {
+        user: userProfile,
+        session: {
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          expires_at: data.session.expires_at || 0,
+        },
+      };
+    } catch (error) {
+      console.error('Get session error:', error);
+      return null;
+    }
+  },
+
+  // Get user profile from database
+  async getUserProfile(userId: string): Promise<User | null> {
+    if (!supabase) {
+      console.warn('Supabase not configured in getUserProfile');
+      return null;
+    }
+    try {
+      console.log('Fetching user profile for ID:', userId);
+      
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.warn('Error fetching user profile:', error.message);
+        return null;
+      }
+
+      console.log('User profile fetched successfully');
+      return data;
+    } catch (error) {
+      console.error('Get user profile error:', error);
+      return null;
+    }
+  },
+
+  // Authenticate with biometrics and optionally sign in with stored credentials
+  // Authenticate with biometrics and optionally sign in with stored credentials
+  async biometricAuthenticate() {
+    try {
+      // Only available on native platforms
+      if (Platform.OS === 'web') {
+        return { success: false, error: new Error('Biometric authentication not supported on web') };
+      }
+
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      if (!compatible) {
+        throw new Error('Device does not support biometric authentication');
+      }
+
+      const result = await LocalAuthentication.authenticateAsync({
+        disableDeviceFallback: true,
+        promptMessage: 'Authenticate to login',
+      });
+
+      if (!result.success) {
+        return { success: false, error: new Error('Biometric authentication failed') };
+      }
+
+      // retrieve stored credentials
+      const email = await SecureStoreAdapter.getItemAsync('biometric_email');
+      const password = await SecureStoreAdapter.getItemAsync('biometric_password');
+
+      if (email && password) {
+        const signInResult = await this.signIn(email, password);
+        if (signInResult.error) throw signInResult.error;
+        return { success: true, error: null, data: signInResult.data };
+      }
+
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('Biometric authentication error:', error);
+      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      return { success: false, error: new Error(errorMessage) };
+    }
+  },
+
+  // Enable biometric authentication and optionally store credentials
+  async enableBiometric(credentials?: { email: string; password: string }) {
+    try {
+      if (credentials) {
+        await SecureStoreAdapter.setItemAsync('biometric_email', credentials.email);
+        await SecureStoreAdapter.setItemAsync('biometric_password', credentials.password);
+      }
+      await LocalStorage.setItem('biometric_enabled', 'true');
+      return { error: null };
+    } catch (error) {
+      console.error('Enable biometric error:', error);
+      return { error };
+    }
+  },
+
+  // Disable biometric authentication and clear stored credentials
+  async disableBiometric() {
+    try {
+      await LocalStorage.removeItem('biometric_enabled');
+      await SecureStoreAdapter.deleteItemAsync('biometric_email');
+      await SecureStoreAdapter.deleteItemAsync('biometric_password');
+      return { error: null };
+    } catch (error) {
+      console.error('Disable biometric error:', error);
+      return { error };
+    }
+  },
+
+  // Check if biometric is enabled
+  async isBiometricEnabled() {
+    try {
+      const enabled = await LocalStorage.getItem('biometric_enabled');
+      return enabled === 'true';
+    } catch (error) {
+      console.error('Check biometric enabled error:', error);
+      return false;
+    }
+  },
+
+  // Refresh session
+  async refreshSession() {
+    if (!supabase) {
+      return { data: null, error: new Error('Supabase not configured') };
+    }
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (error) throw error;
+
+      return { data, error: null };
+    } catch (error) {
+      console.error('Refresh session error:', error);
+      return { data: null, error };
+    }
+  },
+
+  // Reset password
+  async resetPassword(email: string) {
+    if (!supabase) {
+      return { data: null, error: new Error('Supabase not configured') };
+    }
+    try {
+      const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: 'fieldvisittracker://reset-password',
+      });
+
+      if (error) throw error;
+
+      return { data, error: null };
+    } catch (error) {
+      console.error('Reset password error:', error);
+      return { data: null, error };
+    }
+  },
+};
+
+export default authService;
