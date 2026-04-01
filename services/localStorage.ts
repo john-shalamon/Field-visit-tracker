@@ -56,12 +56,32 @@ export class LocalStorage {
 
   // Store an array
   static async setArray<T>(key: string, value: T[]): Promise<void> {
-    return this.setObject(key, value);
+    try {
+      const jsonValue = JSON.stringify(value);
+      console.log(`💾 Storing array at key "${key}": ${value.length} items, ~${jsonValue.length} bytes`);
+      await AsyncStorage.setItem(key, jsonValue);
+      console.log(`✓ Array stored successfully`);
+    } catch (error) {
+      console.error(`❌ Error storing array at "${key}":`, error);
+      throw error;
+    }
   }
 
   // Get an array
   static async getArray<T>(key: string): Promise<T[] | null> {
-    return this.getObject<T[]>(key);
+    try {
+      const jsonValue = await AsyncStorage.getItem(key);
+      if (jsonValue === null) {
+        console.log(`⚠️ No data found at key "${key}"`);
+        return null;
+      }
+      const parsed = JSON.parse(jsonValue) as T[];
+      console.log(`✓ Retrieved array from "${key}": ${parsed.length} items`);
+      return parsed;
+    } catch (error) {
+      console.error(`❌ Error retrieving array from "${key}":`, error);
+      return null;
+    }
   }
 
   // Clear all stored data
@@ -137,18 +157,32 @@ export class VisitStorage {
 
   // Add a single visit
   static async addVisit(visit: any): Promise<void> {
-    const visits = await this.getVisits() || [];
-    visits.unshift(visit); // Add to beginning
-    await this.saveVisits(visits);
+    try {
+      const visits = await this.getVisits() || [];
+      visits.unshift(visit); // Add to beginning
+      await this.saveVisits(visits);
+      console.log(`✓ Visit stored (ID: ${visit.id}, user: ${visit.user_id}, status: ${visit.status}). Total: ${visits.length}`);
+    } catch (error) {
+      console.error('Error adding visit:', error);
+      throw error;
+    }
   }
 
   // Update a visit
   static async updateVisit(visitId: string, updates: any): Promise<void> {
-    const visits = await this.getVisits() || [];
-    const index = visits.findIndex(v => v.id === visitId);
-    if (index !== -1) {
-      visits[index] = { ...visits[index], ...updates };
-      await this.saveVisits(visits);
+    try {
+      const visits = await this.getVisits() || [];
+      const index = visits.findIndex(v => v.id === visitId);
+      if (index !== -1) {
+        visits[index] = { ...visits[index], ...updates };
+        await this.saveVisits(visits);
+        console.log(`✓ Visit updated (ID: ${visitId}, new status: ${updates.status || visits[index].status})`);
+      } else {
+        console.warn(`⚠️ Visit not found for update (ID: ${visitId})`);
+      }
+    } catch (error) {
+      console.error('Error updating visit:', error);
+      throw error;
     }
   }
 

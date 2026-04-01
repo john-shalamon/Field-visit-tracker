@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '@/types';
 import { authService } from '../services/auth';
+import { hasPermission } from '@/lib/roles';
+import { initializeDummyData } from '../services/dummyData';
 
 export interface AuthContextType {
   user: User | null;
@@ -22,6 +24,10 @@ export interface AuthContextType {
   biometricAuth: () => Promise<{ success: boolean }>;
   enableBiometric: (credentials?: { email: string; password: string }) => Promise<void>;
   disableBiometric: () => Promise<void>;
+  hasPermission: (permission: string) => boolean;
+  isAdmin: () => boolean;
+  isHOD: () => boolean;
+  isOfficer: () => boolean;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,8 +38,14 @@ const useAuthState = (): AuthContextType => {
 
   // Check session on mount
   useEffect(() => {
-    const checkSession = async () => {
+    const initAuth = async () => {
       try {
+        console.log('Ensuring demo users are present...');
+        await authService.ensureDemoUsers();
+
+        console.log('Initializing dummy visits data...');
+        await initializeDummyData();
+
         console.log('Checking existing local session...');
         const currentUser = await authService.getCurrentUser();
         console.log('Session check result:', !!currentUser);
@@ -44,13 +56,13 @@ const useAuthState = (): AuthContextType => {
           console.log('No user session found');
         }
       } catch (error) {
-        console.error('Session check error:', error);
+        console.error('Session init error:', error);
       } finally {
         setLoading(false);
       }
     };
 
-    checkSession();
+    initAuth();
   }, []);
 
   const signUp = useCallback(
@@ -187,6 +199,11 @@ const useAuthState = (): AuthContextType => {
     biometricAuth,
     enableBiometric,
     disableBiometric,
+    hasPermission: (permission: string) => hasPermission(user?.role, permission),
+    isAdmin: () => user?.role === 'admin',
+    isHOD: () => user?.role === 'hod',
+    isOfficer: () =>
+      user?.role === 'field_officer' || user?.role === 'field_visitor' || user?.role === 'collector',
   };
 };
 

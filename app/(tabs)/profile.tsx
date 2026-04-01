@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Switch, Alert, StatusBar, Linking, ActivityIndicator,
+  Switch, Alert, StatusBar, Linking, ActivityIndicator, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import useAuth from '@/hooks/useAuth';
 import authService from '@/services/auth';
-import { VisitStorage } from '@/services/localStorage';
+import { VisitStorage, OfflineQueue } from '@/services/localStorage';
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, loading: authLoading, signOut, enableBiometric, disableBiometric } = useAuth();
@@ -109,20 +109,32 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleSignOut = () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await signOut();
-            router.replace('/(auth)/login');
-          } catch {}
-        },
-      },
-    ]);
+  const confirmSignOut = async () => {
+    if (Platform.OS === 'web') {
+      return window.confirm('Sign Out\n\nAre you sure you want to sign out?');
+    }
+
+    return new Promise<boolean>((resolve) => {
+      Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+        { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Sign Out', style: 'destructive', onPress: () => resolve(true) },
+      ]);
+    });
+  };
+
+  const handleSignOut = async () => {
+    try {
+      const proceed = await confirmSignOut();
+      if (!proceed) return;
+
+      await signOut();
+      await VisitStorage.clearVisits();
+      await OfflineQueue.clearQueue();
+      router.replace('/(auth)/login');
+    } catch (err: any) {
+      console.error('Handle sign out error:', err);
+      Alert.alert('Error', err.message || 'Failed to sign out. Please try again.');
+    }
   };
 
   const menuSections = [

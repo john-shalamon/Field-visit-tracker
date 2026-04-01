@@ -1,5 +1,5 @@
 // User Types
-export type UserRole = 'field_officer' | 'hod' | 'collector' | 'admin';
+export type UserRole = 'field_officer' | 'field_visitor' | 'hod' | 'collector' | 'admin';
 
 export interface User {
   id: string;
@@ -18,6 +18,14 @@ export interface User {
 // Visit Types
 export type VisitStatus = 'draft' | 'submitted' | 'pending_approval' | 'approved' | 'rejected' | 'completed';
 
+export interface VisitHistoryItem {
+  action: 'created' | 'updated' | 'submitted' | 'assigned' | 'approved' | 'rejected' | 'completed';
+  by_user_id: string;
+  by_user_role: UserRole;
+  timestamp: string;
+  details?: string;
+}
+
 export interface Visit {
   id: string;
   user_id: string;
@@ -28,6 +36,9 @@ export interface Visit {
   longitude: number;
   visited_date: string;
   status: VisitStatus;
+  assigned_to?: string;
+  priority?: 'low' | 'medium' | 'high' | 'critical';
+  history?: VisitHistoryItem[];
   created_at: string;
   updated_at: string;
 }

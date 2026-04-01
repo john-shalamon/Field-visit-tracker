@@ -1,10 +1,10 @@
-import { User, AuthSession } from '@/types';
+import { User, AuthSession, UserRole } from '@/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Platform } from 'react-native';
 import { v4 as uuidv4 } from 'uuid';
 import * as SecureStore from 'expo-secure-store';
-import { LocalStorage } from './localStorage';
+import { LocalStorage, VisitStorage, OfflineQueue } from './localStorage';
 
 // Secure store adapter for biometric credentials
 const SecureStoreAdapter = {
@@ -80,8 +80,9 @@ class LocalUserStorage {
   }
 
   static async findUserByEmail(email: string): Promise<User | null> {
+    const normalized = email.trim().toLowerCase();
     const users = await this.getUsers();
-    return users.find(user => user.email === email) || null;
+    return users.find(user => user.email.trim().toLowerCase() === normalized) || null;
   }
 
   static async findUserById(id: string): Promise<User | null> {
@@ -96,6 +97,70 @@ class LocalUserStorage {
       users[index] = { ...users[index], ...updates };
       await this.saveUsers(users);
     }
+  }
+
+  static async seedDemoUsers(): Promise<void> {
+    const existing = await this.getUsers();
+    if (existing.length > 0) {
+      console.log('✓ Demo users already seeded, skipping');
+      return;
+    }
+
+    console.log('🌱 Seeding demo users...');
+    const demoUsers: User[] = [
+      {
+        id: uuidv4(),
+        email: 'officer@example.com',
+        full_name: 'Field Officer One',
+        phone: '+911234567890',
+        role: 'field_officer',
+        department: 'Water',
+        zone: 'Zone 1',
+        employee_id: 'FO-1001',
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: uuidv4(),
+        email: 'collector@example.com',
+        full_name: 'Collector One',
+        phone: '+911234567891',
+        role: 'collector',
+        department: 'Sanitation',
+        zone: 'Zone 2',
+        employee_id: 'C-1001',
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        id: uuidv4(),
+        email: 'hod@example.com',
+        full_name: 'HOD Admin',
+        phone: '+911234567892',
+        role: 'hod',
+        department: 'Public Works',
+        zone: 'Zone 1',
+        employee_id: 'HOD-1001',
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ];
+
+    await this.saveUsers(demoUsers);
+    
+    // Store password hash for each user
+    const password = 'Password123';
+    const passwordHash = hashPassword(password);
+    
+    for (const user of demoUsers) {
+      await AsyncStorage.setItem(`password_${user.id}`, passwordHash);
+      console.log(`✓ Seeded user: ${user.email}`);
+    }
+    
+    console.log(`✓ Demo users seeded successfully (password: ${password})`);
   }
 }
 
@@ -143,9 +208,10 @@ export const authService = {
   }) {
     try {
       const { email, password, fullName, phone, role, department, zone, employeeId } = payload;
+      const normalizedEmail = email.trim().toLowerCase();
 
       // Check if user already exists
-      const existingUser = await LocalUserStorage.findUserByEmail(email);
+      const existingUser = await LocalUserStorage.findUserByEmail(normalizedEmail);
       if (existingUser) {
         return { data: null, error: new Error('User already exists with this email') };
       }
@@ -153,7 +219,7 @@ export const authService = {
       // Create new user
       const newUser: User = {
         id: uuidv4(),
-        email,
+        email: normalizedEmail,
         full_name: fullName,
         phone: phone || '',
         role: (role as any) || 'field_officer',
@@ -186,29 +252,38 @@ export const authService = {
   // Sign in with email and password
   async signIn(email: string, password: string) {
     try {
-      console.log('Starting local sign in process for:', email);
+      const normalizedEmail = email.trim().toLowerCase();
+      console.log('🔐 Sign-in attempt for:', normalizedEmail);
 
       // Find user by email
-      const user = await LocalUserStorage.findUserByEmail(email);
+      const user = await LocalUserStorage.findUserByEmail(normalizedEmail);
       if (!user) {
+        console.log('❌ User not found:', normalizedEmail);
         return { data: null, error: new Error('Invalid email or password') };
       }
+
+      console.log('✓ User found:', user.id, user.email);
 
       // Check password
       const storedHash = await AsyncStorage.getItem(`password_${user.id}`);
       const inputHash = hashPassword(password);
+      
+      console.log('🔍 Comparing passwords...');
+      console.log('  Stored hash exists:', !!storedHash);
+      console.log('  Input hash:', inputHash.substring(0, 10) + '...');
 
       if (storedHash !== inputHash) {
+        console.log('❌ Password mismatch');
         return { data: null, error: new Error('Invalid email or password') };
       }
 
       // Set current user
       await LocalSessionManager.setCurrentUser(user);
 
-      console.log('Local sign in successful for user:', user.id);
+      console.log('✓ Sign-in successful for user:', user.id);
       return { data: { user, session: { user } }, error: null };
     } catch (error) {
-      console.error('Sign in error:', error);
+      console.error('❌ Sign in error:', error);
       const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
       return { data: null, error: new Error(errorMessage) };
     }
@@ -222,6 +297,40 @@ export const authService = {
   // Sign out
   async signOut(): Promise<void> {
     await LocalSessionManager.signOut();
+    try {
+      await VisitStorage.clearVisits();
+    } catch (error) {
+      console.error('Error clearing visits on sign out:', error);
+    }
+    try {
+      await OfflineQueue.clearQueue();
+    } catch (error) {
+      console.error('Error clearing offline queue on sign out:', error);
+    }
+    try {
+      await SecureStoreAdapter.deleteItemAsync('biometric_email');
+      await SecureStoreAdapter.deleteItemAsync('biometric_password');
+      await LocalStorage.setItem(STORAGE_KEYS.BIOMETRIC_ENABLED, 'false');
+    } catch (error) {
+      // Not critical, just log
+      console.warn('Could not clear biometric credentials on sign out:', error);
+    }
+  },
+
+  // Reset password (demo - no real email sending)
+  async resetPassword(email: string): Promise<{ data: any; error: any }> {
+    try {
+      const user = await LocalUserStorage.findUserByEmail(email);
+      if (!user) {
+        return { data: null, error: new Error('No user found with this email') };
+      }
+      // In a real implementation, send an email with a reset link or OTP
+      console.log('Password reset requested for:', email);
+      return { data: { message: 'Reset link sent' }, error: null };
+    } catch (error) {
+      console.error('Reset password error:', error);
+      return { data: null, error };
+    }
   },
 
   // Get user profile
@@ -232,6 +341,40 @@ export const authService = {
   // Update user profile
   async updateUserProfile(userId: string, updates: Partial<User>): Promise<void> {
     await LocalUserStorage.updateUser(userId, { ...updates, updated_at: new Date().toISOString() });
+  },
+
+  // Get all users (admin)
+  async getAllUsers(): Promise<{ data: User[]; error: any }> {
+    try {
+      const users = await LocalUserStorage.getUsers();
+      return { data: users, error: null };
+    } catch (error) {
+      console.error('Get all users error:', error);
+      return { data: [], error };
+    }
+  },
+
+  async ensureDemoUsers(): Promise<void> {
+    try {
+      console.log('📋 Ensuring demo users are seeded...');
+      await LocalUserStorage.seedDemoUsers();
+      const users = await LocalUserStorage.getUsers();
+      console.log(`✓ Total users in system: ${users.length}`);
+    } catch (error) {
+      console.error('❌ Seed demo users error:', error);
+    }
+  },
+
+  // Update user role (admin)
+  async updateUserRole(userId: string, role: UserRole): Promise<{ data: User | null; error: any }> {
+    try {
+      await LocalUserStorage.updateUser(userId, { role, updated_at: new Date().toISOString() });
+      const user = await LocalUserStorage.findUserById(userId);
+      return { data: user, error: null };
+    } catch (error) {
+      console.error('Update user role error:', error);
+      return { data: null, error };
+    }
   },
 
   // Biometric authentication

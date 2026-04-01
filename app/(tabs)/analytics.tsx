@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Dimensions, RefreshControl, StatusBar, ActivityIndicator,
+  Dimensions, RefreshControl, StatusBar, ActivityIndicator, Alert,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -21,8 +21,9 @@ const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
 
 export default function AnalyticsScreen() {
   const { user, loading: authLoading } = useAuth();
-  const { visits, loading, fetchVisits } = useVisits(user?.id);
+  const { visits, loading, fetchVisits, createVisit, submitVisit, approveVisit, rejectVisit, updateVisit } = useVisits(user?.id, user?.role);
   const [timeRange, setTimeRange] = useState<'week' | 'month' | 'all'>('month');
+  const [generating, setGenerating] = useState(false);
 
   useFocusEffect(useCallback(() => { fetchVisits(); }, []));
 
@@ -49,6 +50,71 @@ export default function AnalyticsScreen() {
     if (timeRange === 'week') return (now.getTime() - d.getTime()) < 7 * 86400000;
     return (now.getTime() - d.getTime()) < 30 * 86400000;
   });
+
+  const loadDemoData = async () => {
+    if (!user?.id || generating) return;
+    if (visits.length > 0) {
+      Alert.alert('Demo data exists', 'You already have visits; no need to generate demo data now.');
+      return;
+    }
+
+    setGenerating(true);
+    try {
+      const dummy: Array<{ title: string; description: string; location_name: string; latitude: number; longitude: number; visited_date: string; status: 'draft' | 'submitted' | 'pending_approval' | 'approved' | 'rejected' | 'completed' }> = [
+        { title: 'Ward 7 PHC Inspection', description: 'Sanitation and staff compliance checks.', location_name: 'Ward 7 Health Center, City A', latitude: 12.9716, longitude: 77.5946, visited_date: new Date(Date.now()-10*86400000).toISOString().split('T')[0], status: 'approved' },
+        { title: 'Water Pump Station Check', description: 'Inspect water quality and pump condition.', location_name: 'North Pump Station, City A', latitude: 12.9750, longitude: 77.5910, visited_date: new Date(Date.now()-8*86400000).toISOString().split('T')[0], status: 'approved' },
+        { title: 'School Facility Assessment', description: 'Evaluate classroom repairs needed.', location_name: 'Green Valley School, City B', latitude: 13.0350, longitude: 77.5970, visited_date: new Date(Date.now()-6*86400000).toISOString().split('T')[0], status: 'pending_approval' },
+        { title: 'Street Light Audit', description: 'Verify outage reports around wards.', location_name: 'Old Town, City B', latitude: 13.0280, longitude: 77.5975, visited_date: new Date(Date.now()-5*86400000).toISOString().split('T')[0], status: 'submitted' },
+        { title: 'Public Toilet Hygiene', description: 'Check cleaning schedule and supplies.', location_name: 'Civic Center, City C', latitude: 13.0200, longitude: 77.6000, visited_date: new Date(Date.now()-4*86400000).toISOString().split('T')[0], status: 'rejected' },
+        { title: 'Road Repair Verification', description: 'Confirm completed work on Pabu Road.', location_name: 'Pabu Road, City C', latitude: 13.0100, longitude: 77.6050, visited_date: new Date(Date.now()-2*86400000).toISOString().split('T')[0], status: 'completed' },
+        { title: 'Park Safety Walk', description: 'Check lighting and fences at central park.', location_name: 'Central Park, City A', latitude: 12.9725, longitude: 77.5955, visited_date: new Date(Date.now()-1*86400000).toISOString().split('T')[0], status: 'draft' },
+      ];
+
+      for (const item of dummy) {
+        const created = await createVisit({
+          title: item.title,
+          description: item.description,
+          location_name: item.location_name,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          visited_date: item.visited_date,
+        });
+
+        const visitId = created?.id;
+        if (!visitId) continue;
+
+        if (item.status === 'submitted') {
+          await submitVisit(visitId);
+        } else if (item.status === 'pending_approval') {
+          await submitVisit(visitId);
+          await updateVisit(visitId, { status: 'pending_approval' });
+        } else if (item.status === 'approved') {
+          await submitVisit(visitId);
+          await approveVisit(visitId, user.id);
+        } else if (item.status === 'rejected') {
+          await submitVisit(visitId);
+          await rejectVisit(visitId, user.id, 'Not meeting requirements');
+        } else if (item.status === 'completed') {
+          await submitVisit(visitId);
+          await approveVisit(visitId, user.id);
+          await updateVisit(visitId, { status: 'completed' });
+        }
+      }
+
+      await fetchVisits();
+      Alert.alert('Demo data loaded', 'Your dashboard now shows rich analytics sample data.');
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Unable to generate demo data');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!loading && visits.length === 0) {
+      loadDemoData();
+    }
+  }, [loading, visits.length]);
 
   const stats = {
     total: filteredVisits.length,
@@ -124,6 +190,14 @@ export default function AnalyticsScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        <TouchableOpacity
+          style={[styles.demoButton, generating && styles.buttonDisabled]}
+          onPress={loadDemoData}
+          disabled={generating}
+        >
+          <Text style={styles.demoButtonText}>{generating ? 'Generating demo data...' : 'Generate Demo Data'}</Text>
+        </TouchableOpacity>
 
         {/* KPI Cards */}
         <View style={styles.kpiGrid}>
@@ -258,6 +332,8 @@ const styles = StyleSheet.create({
   rangeChipActive: { backgroundColor: 'white', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3, elevation: 2 },
   rangeText: { fontSize: 13, color: '#999', fontWeight: '600' },
   rangeTextActive: { color: '#0066cc' },
+  demoButton: { backgroundColor: '#0066cc', paddingVertical: 10, borderRadius: 8, alignItems: 'center', marginBottom: 16 },
+  demoButtonText: { color: '#fff', fontWeight: '700' },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
   kpiCard: { width: (width - 42) / 2, backgroundColor: 'white', borderRadius: 12, padding: 14, borderLeftWidth: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1 },
   kpiNumber: { fontSize: 28, fontWeight: '800', color: '#1a1a1a' },

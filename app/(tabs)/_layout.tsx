@@ -1,7 +1,10 @@
 import { Tabs } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import useAuth from '@/hooks/useAuth';
 
 export default function TabsLayout() {
+  const { user, isAdmin, isOfficer } = useAuth();
+
   return (
     <Tabs
       screenOptions={{
@@ -77,6 +80,30 @@ export default function TabsLayout() {
           headerShown: false,
         }}
       />
+      {isAdmin() && (
+        <Tabs.Screen
+          name="admin"
+          options={{
+            title: 'Admin',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons name="shield-account" color={color} size={size} />
+            ),
+            headerShown: false,
+          }}
+        />
+      )}
+      {isOfficer() && (
+        <Tabs.Screen
+          name="collector"
+          options={{
+            title: 'Collector',
+            tabBarIcon: ({ color, size }) => (
+              <MaterialCommunityIcons name="truck" color={color} size={size} />
+            ),
+            headerShown: false,
+          }}
+        />
+      )}
       <Tabs.Screen
         name="visit-detail"
         options={{

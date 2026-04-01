@@ -7,6 +7,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import useAuth from '@/hooks/useAuth';
 import useVisits from '@/hooks/useVisits';
+import { hasPermission } from '@/lib/roles';
 import { Visit } from '@/types';
 
 const { width } = Dimensions.get('window');
@@ -23,7 +24,7 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: string }>
 export default function HomeScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { visits, loading, fetchVisits, syncing, offlineQueueLength, syncOfflineData } = useVisits(user?.id);
+  const { visits, loading, fetchVisits, syncing, offlineQueueLength, syncOfflineData } = useVisits(user?.id, user?.role);
   const [greeting, setGreeting] = useState('');
 
   useEffect(() => {
@@ -31,7 +32,10 @@ export default function HomeScreen() {
     setGreeting(h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening');
   }, []);
 
-  useFocusEffect(useCallback(() => { fetchVisits(); }, []));
+  useFocusEffect(useCallback(() => { 
+    console.log('🏠 Home screen focused - fetching visits for user:', user?.id);
+    fetchVisits(); 
+  }, [fetchVisits]));
 
   if (authLoading) {
     return (
@@ -60,11 +64,18 @@ export default function HomeScreen() {
 
   const recentVisits = [...visits].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10);
 
+  useEffect(() => {
+    console.log('📊 Home screen state updated:');
+    console.log('   User:', user?.id, user?.role);
+    console.log('   Loading:', loading);
+    console.log('   Visits:', visits.length, visits.map(v => ({ id: v.id, title: v.title, status: v.status })));
+  }, [user, loading, visits]);
+
   const quickActions = [
-    { icon: 'plus-circle', label: 'New Visit', color: '#0066cc', route: '/(tabs)/create' },
-    { icon: 'clipboard-check', label: 'Approvals', color: '#f57c00', route: '/(tabs)/approvals' },
-    { icon: 'chart-bar', label: 'Reports', color: '#7b1fa2', route: '/(tabs)/analytics' },
-    { icon: 'account', label: 'Profile', color: '#00796b', route: '/(tabs)/profile' },
+    { icon: 'plus-circle', label: 'New Visit', color: '#0066cc', route: '/(tabs)/create', allow: () => true },
+    { icon: 'clipboard-check', label: 'Approvals', color: '#f57c00', route: '/(tabs)/approvals', allow: () => hasPermission(user?.role, 'approve_visit') || hasPermission(user?.role, 'reject_visit') },
+    { icon: 'chart-bar', label: 'Reports', color: '#7b1fa2', route: '/(tabs)/analytics', allow: () => hasPermission(user?.role, 'view_reports') || hasPermission(user?.role, 'view_analytics') },
+    { icon: 'account', label: 'Profile', color: '#00796b', route: '/(tabs)/profile', allow: () => true },
   ];
 
   const formatDate = (d: string) => {
@@ -199,7 +210,7 @@ export default function HomeScreen() {
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Quick Actions</Text>
         <View style={styles.actionsRow}>
-          {quickActions.map((a) => (
+          {quickActions.filter((a) => a.allow()).map((a) => (
             <TouchableOpacity
               key={a.label}
               style={styles.actionButton}

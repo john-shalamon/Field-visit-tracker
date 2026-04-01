@@ -11,6 +11,7 @@ import { UserRole } from '@/types';
 
 const ROLES: { value: UserRole; label: string; icon: string }[] = [
   { value: 'field_officer', label: 'Field Officer', icon: 'walk' },
+  { value: 'field_visitor', label: 'Field Visitor', icon: 'map-marker-path' },
   { value: 'hod', label: 'Head of Dept', icon: 'account-tie' },
   { value: 'collector', label: 'District Collector', icon: 'shield-account' },
   { value: 'admin', label: 'Administrator', icon: 'cog' },

@@ -17,7 +17,7 @@ export default function VisitDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { visits, submitVisit, updateVisit } = useVisits(user?.id);
+  const { visits, submitVisit, updateVisit } = useVisits(user?.id, user?.role);
   const [visit, setVisit] = useState<Visit | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
   const [inspectionNotes, setInspectionNotes] = useState('');
@@ -50,35 +50,50 @@ export default function VisitDetailScreen() {
   }
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Camera permission is required to take photos');
-      return;
-    }
+    try {
+      const camera = await ImagePicker.requestCameraPermissionsAsync();
+      const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (camera.status !== 'granted' || media.status !== 'granted') {
+        Alert.alert('Permission needed', 'Camera and media library permissions are required to take photos');
+        return;
+      }
 
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      exif: true,
-    });
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        exif: true,
+      });
 
-    if (!result.canceled && result.assets[0]) {
-      const photoUri = result.assets[0].uri;
-      setPhotos([...photos, photoUri]);
-      Alert.alert('Photo Added', 'Photo captured with GPS metadata successfully!');
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        const photoUri = result.assets[0].uri;
+        setPhotos((prev) => [...prev, photoUri]);
+        Alert.alert('Photo Added', 'Photo captured with GPS metadata successfully!');
+      }
+    } catch (err: any) {
+      Alert.alert('Camera Error', err.message || 'Unable to open camera');
     }
   };
 
   const pickPhoto = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsMultipleSelection: true,
-    });
+    try {
+      const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (media.status !== 'granted') {
+        Alert.alert('Permission needed', 'Media library permission is required to pick photos');
+        return;
+      }
 
-    if (!result.canceled && result.assets) {
-      const newPhotos = result.assets.map((a) => a.uri);
-      setPhotos([...photos, ...newPhotos]);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsMultipleSelection: true,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newPhotos = result.assets.map((a) => a.uri);
+        setPhotos((prev) => [...prev, ...newPhotos]);
+      }
+    } catch (err: any) {
+      Alert.alert('Photo Selection Error', err.message || 'Unable to pick photos');
     }
   };
 
@@ -303,6 +318,28 @@ export default function VisitDetailScreen() {
         </View>
       )}
 
+      {/* Activity History */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>
+          <MaterialCommunityIcons name="history" size={18} color="#0066cc" /> Activity History
+        </Text>
+        {visit.history && visit.history.length > 0 ? (
+          visit.history.slice().reverse().map((item, idx) => (
+            <View key={`${item.timestamp}-${idx}`} style={styles.historyRow}>
+              <View style={[styles.historyBadge, { backgroundColor: item.action === 'approved' ? '#e8f5e9' : item.action === 'rejected' ? '#ffebee' : '#e3f2fd' }]}>
+                <Text style={styles.historyBadgeText}>{item.action.replace('_', ' ').toUpperCase()}</Text>
+              </View>
+              <View style={styles.historyContent}>
+                <Text style={styles.historyText}>{item.details || 'No details provided.'}</Text>
+                <Text style={styles.historyMeta}>{item.by_user_role} ({item.by_user_id}) • {new Date(item.timestamp).toLocaleString()}</Text>
+              </View>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.noHistory}>No history entries yet.</Text>
+        )}
+      </View>
+
       {/* Action Buttons */}
       {visit.status === 'draft' && (
         <View style={styles.actionRow}>
@@ -358,6 +395,13 @@ const styles = StyleSheet.create({
   mapText: { fontSize: 14, color: '#1565c0', fontWeight: '600', marginTop: 8 },
   mapSubtext: { fontSize: 12, color: '#666', marginTop: 2 },
   photoScroll: { marginBottom: 12 },
+  historyRow: { marginBottom: 10, padding: 10, borderRadius: 10, backgroundColor: '#f9fafe', borderWidth: 1, borderColor: '#e7eef9' },
+  historyBadge: { alignSelf: 'flex-start', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginBottom: 5 },
+  historyBadgeText: { fontSize: 10, fontWeight: '700', color: '#333' },
+  historyContent: { marginTop: 4 },
+  historyText: { fontSize: 13, color: '#444' },
+  historyMeta: { fontSize: 11, color: '#777', marginTop: 3 },
+  noHistory: { color: '#999', fontSize: 13, textAlign: 'center', marginTop: 8 },
   photoThumb: { width: 100, height: 100, borderRadius: 8, marginRight: 8 },
   photoOverlay: { position: 'absolute', bottom: 4, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   photoIndex: { color: 'white', fontSize: 10, fontWeight: '700' },

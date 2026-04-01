@@ -19,8 +19,8 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: string }>
 };
 
 export default function ApprovalsScreen() {
-  const { user, loading: authLoading } = useAuth();
-  const { visits, loading, fetchVisits, approveVisit, rejectVisit } = useVisits(user?.id);
+  const { user, loading: authLoading, isHOD } = useAuth();
+  const { visits, loading, fetchVisits, approveVisit, rejectVisit } = useVisits(user?.id, user?.role);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showApproveModal, setShowApproveModal] = useState(false);
@@ -64,7 +64,7 @@ export default function ApprovalsScreen() {
   const confirmApprove = async () => {
     if (!selectedVisit) return;
     try {
-      await approveVisit(selectedVisit.id, user?.id || '');
+      await approveVisit(selectedVisit.id, user?.id || '', user?.role || 'hod');
       Alert.alert('Approved', 'Visit has been approved with digital signature.');
       setShowApproveModal(false);
       fetchVisits();
@@ -83,7 +83,7 @@ export default function ApprovalsScreen() {
     if (!selectedVisit) return;
     if (!rejectReason.trim()) { Alert.alert('Required', 'Please provide a reason for rejection'); return; }
     try {
-      await rejectVisit(selectedVisit.id, user?.id || '', rejectReason);
+      await rejectVisit(selectedVisit.id, user?.id || '', rejectReason, user?.role || 'hod');
       Alert.alert('Rejected', 'Visit has been rejected.');
       setShowRejectModal(false);
       fetchVisits();
@@ -396,6 +396,13 @@ const styles = StyleSheet.create({
   rejectButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderRadius: 8, borderWidth: 1.5, borderColor: '#ffcdd2' },
   rejectText: { fontSize: 13, fontWeight: '700', color: '#d32f2f' },
   approveButton: { flex: 1.5, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 10, borderRadius: 8, backgroundColor: '#2e7d32' },
+  assignRow: { marginTop: 12, backgroundColor: '#f4f6fb', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#dfe4ee' },
+  assignLabel: { fontSize: 12, color: '#666', fontWeight: '600', marginBottom: 8 },
+  collectorScroll: { flexDirection: 'row' },
+  collectorButton: { paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ccc', marginRight: 8 },
+  collectorButtonActive: { backgroundColor: '#2e7d32', borderColor: '#2e7d32' },
+  collectorText: { fontSize: 12, color: '#333', fontWeight: '600' },
+  collectorTextActive: { color: 'white' },
   approveText: { fontSize: 13, fontWeight: '700', color: 'white' },
   signatureBar: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
   signatureText: { fontSize: 12, color: '#2e7d32', fontWeight: '600' },

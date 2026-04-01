@@ -9,13 +9,14 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import useAuth from '@/hooks/useAuth';
 import useVisits from '@/hooks/useVisits';
+import { VisitStorage } from '@/services/localStorage';
 
 type Severity = 'low' | 'medium' | 'high' | 'critical';
 
 export default function CreateVisitScreen() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { createVisit, loading } = useVisits(user?.id);
+  const { createVisit, submitVisit, loading } = useVisits(user?.id, user?.role);
 
   // Visit info
   const [title, setTitle] = useState('');
@@ -111,29 +112,48 @@ export default function CreateVisitScreen() {
   };
 
   const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Camera permission is needed to take photos');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
-      allowsEditing: false,
-    });
-    if (!result.canceled && result.assets[0]) {
-      setPhotos([...photos, { uri: result.assets[0].uri, timestamp: new Date().toISOString() }]);
+    try {
+      const camera = await ImagePicker.requestCameraPermissionsAsync();
+      const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (camera.status !== 'granted' || media.status !== 'granted') {
+        Alert.alert('Permission Required', 'Camera and media library permissions are required to take photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: false,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        setPhotos((prev) => [...prev, { uri: result.assets[0].uri, timestamp: new Date().toISOString() }]);
+      }
+    } catch (err: any) {
+      Alert.alert('Camera Error', err.message || 'Unable to open camera');
     }
   };
 
   const pickPhoto = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.8,
-      allowsMultipleSelection: true,
-      mediaTypes: 'images',
-    });
-    if (!result.canceled) {
-      const newPhotos = result.assets.map(a => ({ uri: a.uri, timestamp: new Date().toISOString() }));
-      setPhotos([...photos, ...newPhotos]);
+    try {
+      const media = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (media.status !== 'granted') {
+        Alert.alert('Permission Required', 'Media library permission is required to pick photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        quality: 0.8,
+        allowsMultipleSelection: true,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newPhotos = result.assets.map((a) => ({ uri: a.uri, timestamp: new Date().toISOString() }));
+        setPhotos((prev) => [...prev, ...newPhotos]);
+      }
+    } catch (err: any) {
+      Alert.alert('Photo Selection Error', err.message || 'Unable to pick photos');
     }
   };
 
@@ -146,23 +166,79 @@ export default function CreateVisitScreen() {
     if (!locationCaptured) { Alert.alert('Error', 'Please capture GPS location first'); return; }
     if (!user?.id) { Alert.alert('Error', 'You must be logged in to submit a visit'); return; }
 
-    try {
-      await createVisit({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        location_name: address || 'Unknown Location',
-        latitude: parseFloat(latitude),
-        longitude: parseFloat(longitude),
-        visited_date: visitDate,
-      });
-      Alert.alert(
-        asDraft ? 'Draft Saved' : 'Visit Submitted',
-        asDraft ? 'Your visit has been saved as a draft.' : 'Your visit has been submitted for approval.',
-        [{ text: 'OK', onPress: () => router.push('/(tabs)/home') }]
-      );
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'Failed to save visit');
-    }
+    Alert.alert(
+      asDraft ? 'Save Draft' : 'Submit Visit',
+      asDraft ? 'Do you want to save this visit as a draft?' : 'Once submitted, this visit cannot be edited. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: asDraft ? 'Save' : 'Submit',
+          onPress: async () => {
+            try {
+              console.log('📝 Creating visit:', { title, user_id: user.id, photos: photos.length });
+              
+              // Prepare inspection data if provided
+              const inspectionData = showInspection && (findings.trim() || recommendations.trim()) ? {
+                inspection_type: inspectionType,
+                findings: findings.trim(),
+                recommendations: recommendations.trim(),
+                severity: severity,
+              } : null;
+
+              const created = await createVisit({
+                title: title.trim(),
+                description: description.trim() || undefined,
+                location_name: address || 'Unknown Location',
+                latitude: parseFloat(latitude),
+                longitude: parseFloat(longitude),
+                visited_date: visitDate,
+              });
+
+              if (!created || !created.id) {
+                console.error('❌ Visit creation failed - no ID returned');
+                throw new Error('Failed to create visit.');
+              }
+
+              console.log('✓ Visit created with ID:', created.id);
+
+              // Store additional metadata (photos, inspections) with the visit
+              if (photos.length > 0 || inspectionData) {
+                console.log('💾 Storing visit metadata - Photos:', photos.length, 'Inspection:', !!inspectionData);
+                await VisitStorage.updateVisit(created.id, {
+                  photos: photos.map(p => ({ uri: p.uri, timestamp: p.timestamp })),
+                  inspection: inspectionData,
+                });
+              }
+
+              if (!asDraft) {
+                console.log('📤 Submitting visit:', created.id);
+                console.log('   User:', user.id, 'Role:', user.role);
+                const submitted = await submitVisit(created.id, user.id, user.role);
+                console.log('✓ Visit submitted, new status:', submitted?.status);
+                if (submitted?.status !== 'submitted') {
+                  console.warn('⚠️ Expected status "submitted" but got:', submitted?.status);
+                }
+              }
+
+              Alert.alert(
+                asDraft ? 'Draft Saved' : 'Visit Submitted',
+                asDraft ? 'Your visit has been saved as a draft.' : 'Your visit has been submitted for approval.',
+                [{ 
+                  text: 'OK', 
+                  onPress: () => {
+                    console.log('📍 Navigating to home dashboard');
+                    router.replace('/(tabs)/home');
+                  }
+                }]
+              );
+            } catch (err: any) {
+              console.error('❌ Submit error:', err);
+              Alert.alert('Error', err.message || 'Failed to save visit');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
